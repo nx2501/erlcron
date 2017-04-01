@@ -8,6 +8,11 @@ ERLFLAGS= -pa $(CURDIR)/.eunit -pa $(CURDIR)/ebin -pa $(CURDIR)/deps/*/ebin
 
 DEPS_PLT=$(CURDIR)/.deps_plt
 
+DIALYZER = dialyzer
+
+DIALYZER_WARNINGS = -Wunmatched_returns -Werror_handling \
+                    -Wrace_conditions -Wunderspecs
+
 # =============================================================================
 # Verify that the programs we need to run are installed on this system
 # =============================================================================
@@ -17,59 +22,64 @@ ifeq ($(ERL),)
 $(error "Erlang not available on this system")
 endif
 
-REBAR=$(shell which rebar)
+REBAR=$(shell command -v rebar || echo ./rebar3)
 
 ifeq ($(REBAR),)
 $(error "Rebar not available on this system")
 endif
 
-.PHONY: all compile doc clean test dialyzer typer shell distclean pdf \
-	get-deps escript clean-common-test-data rebuild
+.PHONY: all compile doc clean test dialyze typer shell distclean pdf \
+	deps escript clean-common-test-data rebuild
 
-all: compile dialyzer test
+#all: compile dialyze test
+all: compile test
 
 # =============================================================================
 # Rules to build the system
 # =============================================================================
 
-get-deps:
-	$(REBAR) get-deps
+deps:
+	$(REBAR) deps
 	$(REBAR) compile
 
 compile:
-	$(REBAR) skip_deps=true compile
+	$(REBAR) compile
 
 doc:
-	$(REBAR) skip_deps=true doc
+	$(REBAR) doc
 
 eunit: compile clean-common-test-data
-	$(REBAR) skip_deps=true eunit
+	$(REBAR) eunit
 
 ct: compile clean-common-test-data
-	$(REBAR) skip_deps=true ct
+	$(REBAR) ct
 
 test: compile eunit ct
 
 $(DEPS_PLT):
 	@echo Building local plt at $(DEPS_PLT)
 	@echo
-	dialyzer --output_plt $(DEPS_PLT) --build_plt \
+	dialyze --output_plt $(DEPS_PLT) --build_plt \
 	   --apps erts kernel stdlib
 
-dialyzer: $(DEPS_PLT)
-	dialyzer --plt $(DEPS_PLT) --fullpath \
-	-pa $(CURDIR)/ebin --src src
+.dialyzer_plt:
+	@$(DIALYZER) --build_plt --output_plt .dialyzer_plt --apps kernel stdlib
+
+build-plt: .dialyzer_plt
+
+dialyze: build-plt
+	@$(DIALYZER) --src src --plt .dialyzer_plt $(DIALYZER_WARNINGS)
 
 typer:
 	typer --plt $(DEPS_PLT) -r ./src
 
-shell: get-deps compile
+shell: deps compile
 # You often want *rebuilt* rebar tests to be available to the
 # shell you have to call eunit (to get the tests
 # rebuilt). However, eunit runs the tests, which probably
 # fails (thats probably why You want them in the shell). This
 # runs eunit but tells make to ignore the result.
-	- @$(REBAR) skip_deps=true eunit
+	- @$(REBAR) eunit
 	@$(ERL) $(ERLFLAGS)
 
 pdf:
@@ -81,12 +91,13 @@ clean-common-test-data:
 	- rm -rf $(CURDIR)/test/*_SUITE_data
 
 clean: clean-common-test-data
-	- rm -rf $(CURDIR)/test/*.beam
-	- rm -rf $(CURDIR)/logs
-	$(REBAR) skip_deps=true clean
+	- rm -rf $(CURDIR)/_build/default/lib/*/*.beam
+	- rm -rf $(CURDIR)/_build/test/lib/*/*.beam
+	- rm -rf $(CURDIR)/_build/test/logs
+	$(REBAR) clean
 
 distclean: clean
 	- rm -rf $(DEPS_PLT)
 	- rm -rvf $(CURDIR)/deps/*
 
-rebuild: distclean get-deps compile dialyzer test
+rebuild: clean deps compile dialyze test

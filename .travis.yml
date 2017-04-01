@@ -6,9 +6,10 @@ otp_release:
        - 17.5
        - 18.0
        - 18.1
+       - 19.2
 
-before_script: "make get-deps"
+before_script: "make depss"
 script: "make test"
 branches:
         only:
-                - master
+            - master
